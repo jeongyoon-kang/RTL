@@ -53,3 +53,45 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+#==============================================================================
+# Xilinx Vivado Simulator (xvlog, xelab, xsim) Generated Files
+#==============================================================================
+
+# Simulation work directory
+xsim.dir/
+
+# Simulation database files
+*.wdb
+
+# Log files
+*.log
+*.jou
+
+# Protobuf files
+*.pb
+
+# Xilinx temporary directory
+.Xil/
+
+# Webtalk files
+webtalk*
+webtalk.jou
+webtalk_*.xml
+
+# Snapshot files (can be regenerated)
+*.snapshot/
+
+# Memory initialization files (if auto-generated)
+# *.mem
+# *.mif
+
+# Backup files
+*~
+*.bak
+*.swp
+*.swo
+
+# OS-specific files
+.DS_Store
+Thumbs.db

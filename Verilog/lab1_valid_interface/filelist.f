@@ -6,4 +6,4 @@
 rtl/basic.v
 
 # Testbench files
-testbench/basic_tb.v
+// testbench/basic_tb.v
