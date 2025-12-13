@@ -21,7 +21,7 @@
 `timescale 1ns/1ps
 `default_nettype none
 
-module module_name #(
+module power #(
     parameter DATA_WIDTH = 32
 )(
     // Clock and Reset
@@ -51,7 +51,7 @@ module module_name #(
 //-----------------------------------------------------------------------------
 // 🟧Combinational signals (intermediate values, NOT registers)
 
-    wire power_of_2;
+    wire [63:0] power_of_2;
 
 // 🟦Sequential signals (actual flip-flops)
 
@@ -63,7 +63,7 @@ module module_name #(
 //-----------------------------------------------------------------------------
 // 🟧Combinational signals (intermediate values, NOT registers)
 
-    wire power_of_4;
+    wire [63:0] power_of_4;
 
 // 🟦Sequential signals (actual flip-flops)
 
@@ -75,7 +75,7 @@ module module_name #(
 //-----------------------------------------------------------------------------
 // 🟧Combinational signals (intermediate values, NOT registers)
 
-    wire power_of_8;
+    wire [63:0] power_of_8;
 
 // 🟦Sequential signals (actual flip-flops)
 
@@ -100,7 +100,7 @@ module module_name #(
 
 // 🟩Stage 2
 
-    assign power_of_8 = r_power_of_8 * r_power_of_8;
+    assign power_of_8 = r_power_of_4 * r_power_of_4;
 
 
 //=============================================================================
