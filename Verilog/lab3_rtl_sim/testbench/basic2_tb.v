@@ -1,21 +1,22 @@
 //==============================================================================
-// File name    : case3a_tb.v
-// Description  : Case 3A - Blocking assignment without time delay
+// File name    : basic2_tb.v
+// Description  : Background Example 2 - @(posedge clk) OUTSIDE for-loop
 //
-// Case Study: Time Delay Effect on Race Conditions
+// This testbench demonstrates @(posedge clk) placement OUTSIDE the for-loop:
 //
-// This testbench drives input signals using BLOCKING assignments immediately
-// after @(posedge clk). This creates a race condition with the DUT as both
-// execute in the Active region at the same simulation time.
+//   for (i = 0; i < N; i = i + 1) begin
+//       signal <= value;    // Non-blocking assignment
+//   end
+//   @(posedge clk);         // Wait for clock edge OUTSIDE loop (after loop)
 //
-// Compare with Case 3B which uses #1 delay to move assignment to next
-// simulation time, avoiding the race condition.
+// Result: Loop completes in ZERO time, only LAST value is captured!
+// This is a COMMON BUG - only ONE clock cycle regardless of N iterations.
 //
 //==============================================================================
 
 `timescale 1ns/1ps
 
-module case3a_tb;
+module basic2_tb;
 
 //=============================================================================
 // Parameters
@@ -66,7 +67,7 @@ power #(
 );
 
 //=============================================================================
-// Test Stimulus - Case 3A: BLOCKING without delay (RACE CONDITION)
+// Test Stimulus - Background Example 2: Assignment BEFORE @(posedge clk)
 //=============================================================================
 initial begin
     // Initialize test vectors
@@ -87,38 +88,40 @@ initial begin
     repeat(1) @(posedge clk);
 
     $display("================================================================");
-    $display("Case 3A: Blocking Assignment WITHOUT Time Delay");
+    $display("Background Example 2: @(posedge clk) OUTSIDE for-loop");
     $display("================================================================");
     $display("Pattern:");
-    $display("  @(posedge clk);");
-    $display("  signal = value;  // NO DELAY - executes in Active Region");
-    $display("");
-    $display("Result: RACE CONDITION with DUT!");
+    $display("  for (i = 0; i < 5; i = i + 1) begin");
+    $display("      i_valid_tb <= 1;    // Non-blocking assignment");
+    $display("      i_data_tb <= value; // Loop runs in ZERO time!");
+    $display("  end");
+    $display("  @(posedge clk);         // Wait OUTSIDE loop - only LAST value seen!");
+    $display("================================================================");
+    $display("WARNING: Only the LAST value (test_values[4]) will be captured!");
     $display("================================================================");
     $display("Time\t\tEvent");
     $display("----------------------------------------------------------------");
 
-    // Send test data using BLOCKING assignments WITHOUT delay
+    // Pattern: @(posedge clk) OUTSIDE for-loop (COMMON BUG!)
     for (i = 0; i < 5; i = i + 1) begin
-        @(posedge clk);
-        // NO DELAY - executes in Active Region, same as DUT!
-        i_valid_tb = 1'b1;
-        i_data_tb = test_values[i];
-        $display("%0t ns\tAssigned i_data_tb = 0x%h (NO DELAY, Active Region)", $time, test_values[i]);
+        i_valid_tb <= 1'b1;          // Non-blocking assignment
+        i_data_tb <= test_values[i]; // Loop runs in ZERO simulation time!
+        $display("%0t ns\tAssigned i_data_tb <= 0x%h (loop iteration %0d)", $time, test_values[i], i);
     end
+    $display("%0t ns\tLoop finished - now waiting for @(posedge clk)", $time);
+    @(posedge clk);                  // Wait OUTSIDE loop - only LAST value captured!
+    $display("%0t ns\tAfter @(posedge clk) - DUT only sees LAST value!", $time);
 
     // Deassert valid
+    i_valid_tb <= 1'b0;
+    i_data_tb <= 32'h0;
     @(posedge clk);
-    i_valid_tb = 1'b0;
-    i_data_tb = 32'h0;
 
     // Wait for pipeline to flush
     repeat(5) @(posedge clk);
 
     $display("================================================================");
     $display("Simulation completed");
-    $display("================================================================");
-    $display("NOTE: Race condition present - behavior is simulator-dependent!");
     $display("================================================================");
     $finish;
 end
@@ -142,8 +145,8 @@ end
 // Waveform Dump
 //=============================================================================
 initial begin
-    $dumpfile("case3a.vcd");
-    $dumpvars(0, case3a_tb);
+    $dumpfile("basic2.vcd");
+    $dumpvars(0, basic2_tb);
 end
 
 endmodule

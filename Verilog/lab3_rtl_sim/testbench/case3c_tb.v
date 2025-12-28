@@ -1,21 +1,26 @@
 //==============================================================================
-// File name    : case3a_tb.v
-// Description  : Case 3A - Blocking assignment without time delay
+// File name    : case3c_tb.v
+// Description  : Case 3C - Blocking assignment WITH #1 time delay (SAFE)
 //
-// Case Study: Time Delay Effect on Race Conditions
+// Case Study: Time Delay Effect - Different Simulation Time
 //
-// This testbench drives input signals using BLOCKING assignments immediately
-// after @(posedge clk). This creates a race condition with the DUT as both
-// execute in the Active region at the same simulation time.
+// This testbench drives input signals using BLOCKING assignments WITH
+// a #1 delay after @(posedge clk). The #1 delay moves the assignment to
+// a DIFFERENT simulation time (T+1ns), completely avoiding race conditions.
 //
-// Compare with Case 3B which uses #1 delay to move assignment to next
-// simulation time, avoiding the race condition.
+// IMPORTANT: #1 (or any #n where n > 0) DOES avoid race conditions!
+// - Execution moves to time T+1ns (different from clock edge at time T)
+// - DUT samples inputs at time T, TB updates at T+1ns
+// - No overlap = NO RACE CONDITION
+//
+// However, non-blocking assignments are still the preferred solution
+// as they are more idiomatic and self-documenting.
 //
 //==============================================================================
 
 `timescale 1ns/1ps
 
-module case3a_tb;
+module case3c_tb;
 
 //=============================================================================
 // Parameters
@@ -66,7 +71,7 @@ power #(
 );
 
 //=============================================================================
-// Test Stimulus - Case 3A: BLOCKING without delay (RACE CONDITION)
+// Test Stimulus - Case 3C: BLOCKING with #1 delay (RACE-FREE)
 //=============================================================================
 initial begin
     // Initialize test vectors
@@ -87,28 +92,31 @@ initial begin
     repeat(1) @(posedge clk);
 
     $display("================================================================");
-    $display("Case 3A: Blocking Assignment WITHOUT Time Delay");
+    $display("Case 3C: Blocking Assignment WITH #1 Time Delay (SAFE)");
     $display("================================================================");
     $display("Pattern:");
     $display("  @(posedge clk);");
-    $display("  signal = value;  // NO DELAY - executes in Active Region");
+    $display("  #1;              // Real time delay - move to T+1ns");
+    $display("  signal = value;  // Executes at DIFFERENT simulation time");
     $display("");
-    $display("Result: RACE CONDITION with DUT!");
+    $display("Result: NO RACE - TB updates at T+1, DUT samples at T");
+    $display("        Different simulation time = no race condition");
     $display("================================================================");
     $display("Time\t\tEvent");
     $display("----------------------------------------------------------------");
 
-    // Send test data using BLOCKING assignments WITHOUT delay
+    // Send test data using BLOCKING assignments WITH #1 delay
     for (i = 0; i < 5; i = i + 1) begin
         @(posedge clk);
-        // NO DELAY - executes in Active Region, same as DUT!
+        #1;  // CRITICAL: Real time delay moves to T+1ns (different time!)
         i_valid_tb = 1'b1;
         i_data_tb = test_values[i];
-        $display("%0t ns\tAssigned i_data_tb = 0x%h (NO DELAY, Active Region)", $time, test_values[i]);
+        $display("%0t ns\tAssigned i_data_tb = 0x%h (WITH #1 DELAY - T+1ns)", $time, test_values[i]);
     end
 
     // Deassert valid
     @(posedge clk);
+    #1;
     i_valid_tb = 1'b0;
     i_data_tb = 32'h0;
 
@@ -118,7 +126,13 @@ initial begin
     $display("================================================================");
     $display("Simulation completed");
     $display("================================================================");
-    $display("NOTE: Race condition present - behavior is simulator-dependent!");
+    $display("SUCCESS: #1 delay prevents race conditions!");
+    $display("  - Clock edge occurs at time T (e.g., 30ns, 40ns, ...)");
+    $display("  - TB updates at time T+1 (e.g., 31ns, 41ns, ...)");
+    $display("  - DUT samples PREVIOUS value at T, sees NEW value at T+1");
+    $display("");
+    $display("Note: While this works, non-blocking (<=) is still preferred");
+    $display("      for better code clarity and maintainability.");
     $display("================================================================");
     $finish;
 end
@@ -142,8 +156,8 @@ end
 // Waveform Dump
 //=============================================================================
 initial begin
-    $dumpfile("case3a.vcd");
-    $dumpvars(0, case3a_tb);
+    $dumpfile("case3c_time_delay.vcd");
+    $dumpvars(0, case3c_tb);
 end
 
 endmodule

@@ -25,6 +25,9 @@ Within a single simulation time, events are processed in the following order:
    - Evaluate RHS of non-blocking assignments and schedule LHS update for NBA region
    - Execute `$display` statements
    - Evaluate inputs and update outputs of primitives
+   - **CRITICAL**: Within a single `always`/`initial` block, statements execute sequentially (top-to-bottom)
+   - **CRITICAL**: Execution order **between different** `always`/`initial` blocks is **UNDEFINED** by IEEE standard
+   - This undefined ordering between blocks is what causes race conditions!
 
 2. **Inactive Region**
    - Process explicit zero-delay (`#0`) events
@@ -41,25 +44,103 @@ Within a single simulation time, events are processed in the following order:
 ```verilog
 // At time T, posedge clk occurs
 
-// Testbench
+// Testbench (initial block)
 @(posedge clk);
 i_valid = 1'b1;      // Active region: executed immediately
 i_data <= 8'h42;     // NBA region: scheduled for later delta cycle
 
-// DUT
+// DUT (always block)
 always @(posedge clk) begin
-    r_valid <= i_valid;   // NBA region: reads i_valid, schedules update
-    r_data <= i_data;     // NBA region: reads i_data, schedules update
+    r_valid <= i_valid;   // Active region: reads i_valid, schedules NBA update
+    r_data <= i_data;     // Active region: reads i_data, schedules NBA update
 end
 ```
 
 **Execution sequence at time T:**
-1. **Active region**: `i_valid = 1'b1;` executes → `i_valid` changes immediately
-2. **Active region**: DUT reads `i_valid` (sees new value `1'b1`), reads `i_data` (sees old value)
-3. **NBA region**: `i_data` updates to `8'h42`
-4. **NBA region**: `r_valid` and `r_data` update with values read in Active region
 
-This ordering can cause unexpected behavior! The DUT sees different values for `i_valid` and `i_data` even though they were "assigned" at the same time in the testbench.
+⚠️ **CRITICAL**: The testbench's `initial` block and DUT's `always` block are **different blocks**. As stated above, execution order **between different blocks is UNDEFINED** by IEEE standard!
+
+```
+═══════════════════════════════════════════════════════════════════════════════
+                          TIME T: posedge clk occurs
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ACTIVE REGION                                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Both blocks are triggered and ready to execute:                             │
+│                                                                             │
+│   TB initial block              DUT always block                            │
+│   ──────────────────            ─────────────────                           │
+│   @(posedge clk);               always @(posedge clk)                       │
+│   i_valid = 1'b1;     ←─?─→     r_valid <= i_valid;                         │
+│   i_data <= 8'h42;              r_data <= i_data;                           │
+│                                                                             │
+│ ⚠️  Which block executes first? → UNDEFINED by IEEE standard!               │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ SCENARIO A: TB executes first                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   Step 1: TB runs                                                           │
+│   ┌──────────────────────────────────────────────────────────────┐          │
+│   │ i_valid = 1'b1;    → i_valid changes 0→1 IMMEDIATELY         │          │
+│   │ i_data <= 8'h42;   → [SCHEDULE TO NBA]: i_data = 8'h42       │          │
+│   │                      (i_data is STILL old value now!)        │          │
+│   └──────────────────────────────────────────────────────────────┘          │
+│                                                                             │
+│   Step 2: DUT runs (after TB finished)                                      │
+│   ┌──────────────────────────────────────────────────────────────┐          │
+│   │ r_valid <= i_valid; → read i_valid (sees 1'b1 - NEW!)        │          │
+│   │                      → [SCHEDULE TO NBA]: r_valid = 1'b1     │          │
+│   │ r_data <= i_data;   → read i_data (sees OLD value)           │          │
+│   │                      → [SCHEDULE TO NBA]: r_data = OLD       │          │
+│   └──────────────────────────────────────────────────────────────┘          │
+│                                                                             │
+│   Result: DUT captures NEW i_valid, but OLD i_data                          │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ SCENARIO B: DUT executes first                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   Step 1: DUT runs                                                          │
+│   ┌──────────────────────────────────────────────────────────────┐          │
+│   │ r_valid <= i_valid; → read i_valid (sees 1'b0 - OLD!)        │          │
+│   │                      → [SCHEDULE TO NBA]: r_valid = 1'b0     │          │
+│   │ r_data <= i_data;   → read i_data (sees OLD value)           │          │
+│   │                      → [SCHEDULE TO NBA]: r_data = OLD       │          │
+│   └──────────────────────────────────────────────────────────────┘          │
+│                                                                             │
+│   Step 2: TB runs (after DUT finished)                                      │
+│   ┌──────────────────────────────────────────────────────────────┐          │
+│   │ i_valid = 1'b1;    → i_valid changes 0→1 (but too late!)     │          │
+│   │ i_data <= 8'h42;   → [SCHEDULE TO NBA]: i_data = 8'h42       │          │
+│   └──────────────────────────────────────────────────────────────┘          │
+│                                                                             │
+│   Result: DUT captures OLD i_valid AND OLD i_data                           │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 🚨 THIS IS THE RACE CONDITION!                                              │
+│    Same code, same time T, but different results depending on               │
+│    which block the simulator chooses to run first!                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ NBA REGION (after Active region completes)                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   All scheduled non-blocking updates execute now:                           │
+│   ┌──────────────────────────────────────────────────────────────┐          │
+│   │ i_data ← 8'h42      (TB's scheduled update)                  │          │
+│   │ r_valid ← ???       (depends on Scenario A or B!)            │          │
+│   │ r_data ← OLD        (both scenarios read old value)          │          │
+│   └──────────────────────────────────────────────────────────────┘          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+This is why **mixing blocking (`=`) and non-blocking (`<=`) assignments in testbenches can cause unpredictable behavior** - the DUT may see different values depending on simulator implementation!
 
 ### Blocking vs Non-Blocking Assignments
 
@@ -103,9 +184,89 @@ always @(posedge clk or negedge reset_n) begin
 end
 ```
 
+---
+
+## Background Exercises: Understanding `@(posedge clk)` Placement
+
+Before diving into delta cycle analysis, it's important to understand how `@(posedge clk)` placement affects stimulus timing. Both examples use **non-blocking assignments (`<=`)** to drive DUT inputs (race-free).
+
+### Background Example 1 (basic1): `@(posedge clk)` INSIDE for-loop
+
+**Pattern:**
+```verilog
+for (i = 0; i < N; i = i + 1) begin
+    @(posedge clk);          // Wait for clock edge INSIDE loop
+    i_valid <= 1'b1;         // Non-blocking assignment
+    i_data <= data[i];
+end
+```
+
+**Behavior:**
+- Each iteration waits for a clock edge, then updates signals
+- Total iterations: N clock cycles
+- First data appears at the **1st clock edge** after loop starts
+
+**Timing Diagram:**
+```
+clk:     _/‾\_/‾\_/‾\_/‾\_/‾\_
+         T0  T1  T2  T3  T4
+              ↓   ↓   ↓   ↓
+i_data:  X   D0  D1  D2  D3   (updates at each posedge)
+```
+
+---
+
+### Background Example 2 (basic2): `@(posedge clk)` OUTSIDE for-loop
+
+**Pattern:**
+```verilog
+for (i = 0; i < N; i = i + 1) begin
+    i_valid <= 1'b1;         // Non-blocking assignment
+    i_data <= data[i];
+end
+@(posedge clk);              // Wait for clock edge OUTSIDE (after loop)
+```
+
+**Behavior:**
+- Loop completes instantly (same simulation time) - only last value is scheduled!
+- `@(posedge clk)` waits once after ALL iterations
+- **Only the LAST data value is captured!**
+
+**Timing Diagram:**
+```
+clk:     _/‾\_/‾\_
+         T0  T1
+              ↓
+i_data:  X   D(N-1)   (only last value visible!)
+
+Loop executes D0, D1, D2... D(N-1) all at T0
+But each <= overwrites the previous schedule
+Only D(N-1) actually updates at NBA region
+```
+
+---
+
+### Key Comparison: basic1 vs basic2
+
+| Aspect | basic1 (inside loop) | basic2 (outside loop) |
+|--------|---------------------|----------------------|
+| **`@(posedge clk)` location** | Inside for-loop | Outside for-loop |
+| **Clock cycles used** | N cycles | 1 cycle |
+| **Data captured** | All N values | Only last value |
+| **Common use case** | Sequential stimulus | ⚠️ Usually a BUG! |
+
+### Important Learning
+
+This background exercise demonstrates that **`@(posedge clk)` placement fundamentally changes timing behavior**, even when using non-blocking assignments correctly.
+
+- **basic1**: Proper sequential stimulus generation
+- **basic2**: Common mistake - loop runs instantly, only last value matters
+
+---
+
 ## Case Studies
 
-We will explore four scenarios where the choice of blocking vs non-blocking in the testbench affects timing.
+We will explore four key scenarios covering all delta cycle regions:
 
 ### Case 1: Assignment After Clock Edge
 
@@ -169,77 +330,115 @@ i_data <= 8'h05;
 
 ---
 
-### Case 3: Initial Block Initialization
+### Case 3: Delay Effects - Inactive Region and Time Delays
 
-**Scenario**: Initialize signals and start stimulus in an `initial` block.
+**Scenario**: Use delays to avoid race conditions with blocking assignments.
+
+**Important Distinction:**
+- **`#0` (Zero Delay)**: Moves execution to the **Inactive Region** within the **same simulation time**
+- **`#n` where n > 0 (Non-zero Delay)**: Moves execution to a **different simulation time** entirely (NOT Inactive Region!)
 
 ```verilog
-// Case 3A: Blocking
-initial begin
-    i_valid = 1'b0;
-    i_data = 8'h00;
-    repeat(2) @(posedge clk);  // Wait for reset
-    i_valid = 1'b1;             // Start stimulus
-    i_data = 8'h05;
-end
+// Case 3A: Blocking without delay
+@(posedge clk);
+signal = value;      // Executes in Active region - RACE!
 
-// Case 3B: Non-blocking
-initial begin
-    i_valid <= 1'b0;
-    i_data <= 8'h00;
-    repeat(2) @(posedge clk);  // Wait for reset
-    i_valid <= 1'b1;            // Start stimulus
-    i_data <= 8'h05;
-end
+// Case 3B: Blocking with #0 delay (Inactive Region)
+@(posedge clk);
+#0;                  // Move to Inactive region (same simulation time)
+signal = value;      // Executes after Active region, before NBA - STILL RACE!
+
+// Case 3C: Blocking with #1 delay (Different Simulation Time)
+@(posedge clk);
+#1;                  // Move to DIFFERENT simulation time (T+1ns)
+signal = value;      // Executes at T+1ns, completely separate from DUT's T+0ns - SAFE
 ```
 
 **Expected Behavior:**
-- **Case 3A (Blocking)**: Immediate assignments. Stimulus changes occur in Active region.
-- **Case 3B (Non-blocking)**: Scheduled assignments. Stimulus changes occur in NBA region.
+- **Case 3A (Without delay)**: Race condition - blocking assignment in Active region, same delta cycle as DUT
+- **Case 3B (With #0 delay)**: Still potential race - executes in Inactive region but still same simulation time, before NBA updates
+- **Case 3C (With #1 delay)**: No race - assignment happens at completely different simulation time (T+1ns)
 
-This is the scenario where real-world issues often appear in testbenches!
+**Delta Cycle Analysis:**
+```
+Case 3A (T=10ns, posedge clk):
+  Active: signal = value (immediate)
+  Active: DUT reads signal (RACE - order undefined!)
+  NBA:    DUT registers update
+
+Case 3B (T=10ns, posedge clk):
+  Active:   DUT reads signal (order with TB undefined)
+  Inactive: signal = value (#0 delay executes here)
+  NBA:      DUT registers update
+  Note: DUT already read signal in Active region, so #0 doesn't help much!
+
+Case 3C (T=10ns, posedge clk):
+  Active: DUT reads signal (old value - TB hasn't assigned yet)
+  NBA:    DUT registers update
+  --- Time advances to T=11ns ---
+  Active: signal = value (completely different time, no race!)
+```
+
+**Key Learnings:**
+1. **`#0` is NOT the same as `#1`**: `#0` stays in the same simulation time (Inactive region), while `#1` moves to a different time
+2. **`#0` doesn't fully solve race conditions**: The DUT reads inputs in Active region, which happens before Inactive region
+3. **`#n` (n > 0) avoids races by time separation**: The assignment happens at a completely different simulation time
+4. **Non-blocking assignments are still preferred**: They don't require arbitrary delay values and represent the industry-standard practice for synchronous testbenches
 
 ---
 
-### Case 4: Continuous Clock-Synchronous Toggling
+### Case 4: Monitor Region - System Task Execution Timing
 
-**Scenario**: Testbench also uses a clocked `always` block to drive inputs.
+**Scenario**: Compare execution timing of `$display`, `$strobe`, and `$monitor`.
 
 ```verilog
-// Case 4A: Blocking (DANGER - Race Condition!)
+// Case 4A: $display (Active Region)
 always @(posedge clk) begin
-    i_valid = ~i_valid;  // Active region
+    $display("i_valid=%b, r_valid=%b", i_valid, r_valid[0]);
+    // Executes in Active region - may print BEFORE NBA updates!
 end
 
-// DUT
+// Case 4B: $strobe (Monitor Region)
 always @(posedge clk) begin
-    r_valid[0] <= i_valid;  // Active region reads i_valid, NBA updates r_valid[0]
+    $strobe("i_valid=%b, r_valid=%b", i_valid, r_valid[0]);
+    // Executes in Monitor region - prints AFTER NBA updates!
 end
 
-// Case 4B: Non-blocking (Correct)
-always @(posedge clk) begin
-    i_valid <= ~i_valid;  // NBA region
+// Case 4C: $monitor (Monitor Region, Automatic)
+initial begin
+    $monitor("i_valid=%b, r_valid=%b", i_valid, r_valid[0]);
+    // Set up ONCE - automatically prints on signal changes
+    // Executes in Monitor region
 end
 ```
 
 **Expected Behavior:**
-- **Case 4A (Blocking)**: Race condition! Both TB and DUT trigger on the same clock edge. TB's blocking assignment happens in Active region, but order relative to DUT reading the signal is undefined.
-- **Case 4B (Non-blocking)**: Both TB and DUT use NBA region. Updates happen in a well-defined order.
+- **Case 4A ($display)**: Prints in Active region, may show values **before** non-blocking assignment updates
+- **Case 4B ($strobe)**: Prints in Monitor region, shows values **after** all NBA updates
+- **Case 4C ($monitor)**: Also prints in Monitor region, but **automatically** on any monitored signal change
 
-**Race Condition Explanation:**
+**Delta Cycle Timeline:**
 ```
-Time T (posedge clk):
-Case 4A:
-  Active: TB executes i_valid = ~i_valid  (which happens first?)
-  Active: DUT reads i_valid                (does it see old or new value?)
-  → Order is UNDEFINED by the standard!
+T=10ns (posedge clk):
+├─ Active Region
+│  ├─ DUT: reads i_valid (old value 0)
+│  ├─ DUT: schedules r_valid[0] <= 0
+│  └─ Case 4A: $display prints "i_valid=0, r_valid=0" (old r_valid)
+├─ NBA Region
+│  ├─ TB: i_valid updates to 1
+│  └─ DUT: r_valid[0] updates to 0
+└─ Monitor Region
+   ├─ Case 4B: $strobe prints "i_valid=1, r_valid=0" (new i_valid, new r_valid)
+   └─ Case 4C: $monitor prints "i_valid=1, r_valid=0" (automatic)
+```
 
-Case 4B:
-  Active: DUT reads i_valid (old value), schedules r_valid[0] <= old_value
-  NBA:    i_valid updates to new value
-  NBA:    r_valid[0] updates to old value
-  → Deterministic behavior
-```
+**Key Comparison:**
+
+| System Task | Region | Usage | When to Use |
+|------------|--------|-------|-------------|
+| **`$display`** | Active | Manual call each time | Quick debug, immediate values |
+| **`$strobe`** | Monitor | Manual call each time | Verify final values after NBA |
+| **`$monitor`** | Monitor | Set once, auto-print | Continuous signal tracking |
 
 ---
 
@@ -260,25 +459,42 @@ For each case study:
 ### Running Simulations
 
 ```bash
-# Case 1
-make case1a  # Blocking after clock edge
-make case1b  # Non-blocking after clock edge
+# Background: Understand @(posedge clk) placement
+make basic1   # @(posedge clk) BEFORE assignment
+make basic2   # Assignment BEFORE @(posedge clk)
 
-# Case 2
-make case2a  # Blocking before clock edge
-make case2b  # Non-blocking before clock edge
+# Case 1: Active vs NBA Region
+make case1a   # Blocking after clock edge (RACE)
+make case1b   # Non-blocking after clock edge (SAFE)
 
-# Case 3
-make case3a  # Blocking in initial block
-make case3b  # Non-blocking in initial block
+# Case 2: Assignment Location
+make case2a   # Blocking before clock edge (STILL RACE!)
+make case2b   # Non-blocking before clock edge (SAFE)
 
-# Case 4
-make case4a  # Blocking in always block (race condition)
-make case4b  # Non-blocking in always block
+# Case 3: Delay Effects - Inactive Region and Time Delays
+make case3a   # Blocking without delay (RACE)
+make case3b   # Blocking with #0 delay - Inactive Region (STILL RACE)
+make case3c   # Blocking with #1 delay - Different Time (SAFE)
+
+# Case 4: Monitor Region - System Tasks
+make case4a   # Using $display (Active Region)
+make case4b   # Using $strobe (Monitor Region)
+make case4c   # Using $monitor (Monitor Region, Auto)
 ```
 
 ### Viewing Waveforms
 
+**Option 1: Using Vivado (Recommended)**
+```bash
+vivado -source open_waveform.tcl
+```
+
+Or manually in Vivado GUI:
+1. Open Vivado
+2. Flow Navigator → Open Static Simulation → Open Simulation Waveform
+3. Or: File → Open Waveform → Select `dump.vcd`
+
+**Option 2: Using GTKWave**
 ```bash
 gtkwave dump.vcd
 ```
@@ -333,44 +549,59 @@ gtkwave dump.vcd
 
 ---
 
-### Case 3: Initial Block Initialization
+### Case 3: Delay Effects - Inactive Region and Time Delays
 
-#### Case 3A - Blocking Assignment
+#### Case 3A - Blocking Without Delay
 **Observations:**
 - [ ] Waveform screenshot: `results/case3a.png`
 - [ ] Timing analysis:
 - [ ] Key findings:
 
-#### Case 3B - Non-blocking Assignment
+#### Case 3B - Blocking With #0 Delay (Inactive Region)
 **Observations:**
 - [ ] Waveform screenshot: `results/case3b.png`
 - [ ] Timing analysis:
+- [ ] Does #0 avoid the race condition?
+- [ ] Key findings:
+
+#### Case 3C - Blocking With #1 Delay (Different Simulation Time)
+**Observations:**
+- [ ] Waveform screenshot: `results/case3c.png`
+- [ ] Timing analysis:
 - [ ] Key findings:
 
 #### Comparison and Conclusion:
-- [ ] Differences observed:
-- [ ] Explanation based on delta cycles:
+- [ ] Difference between #0 and #1:
+- [ ] Why doesn't #0 fully solve the race condition?
+- [ ] Why does #1 delay avoid race condition?
+- [ ] Which region does #0 execute in? Which "region" does #1 execute in?
 
 ---
 
-### Case 4: Continuous Clock-Synchronous Toggling
+### Case 4: Monitor Region - System Task Timing
 
-#### Case 4A - Blocking Assignment (Race Condition)
+#### Case 4A - Using $display
 **Observations:**
-- [ ] Waveform screenshot: `results/case4a.png`
-- [ ] Timing analysis:
-- [ ] Race condition symptoms:
+- [ ] Console output screenshot: `results/case4a_console.png`
+- [ ] What values are printed?
+- [ ] When does $display execute relative to NBA?
 
-#### Case 4B - Non-blocking Assignment (Correct)
+#### Case 4B - Using $strobe
 **Observations:**
-- [ ] Waveform screenshot: `results/case4b.png`
-- [ ] Timing analysis:
-- [ ] Key findings:
+- [ ] Console output screenshot: `results/case4b_console.png`
+- [ ] What values are printed?
+- [ ] When does $strobe execute relative to NBA?
+
+#### Case 4C - Using $monitor
+**Observations:**
+- [ ] Console output screenshot: `results/case4c_console.png`
+- [ ] What values are printed?
+- [ ] How is $monitor different from $display and $strobe?
 
 #### Comparison and Conclusion:
-- [ ] Differences observed:
-- [ ] Race condition explanation:
-- [ ] Why non-blocking resolves the issue:
+- [ ] Differences between $display, $strobe, and $monitor:
+- [ ] Which system task shows the "final" values after NBA updates?
+- [ ] When to use each system task?
 
 ---
 

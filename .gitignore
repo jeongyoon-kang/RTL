@@ -67,6 +67,7 @@ xsim.dir/
 # Log files
 *.log
 *.jou
+*.str
 
 # Protobuf files
 *.pb
@@ -95,3 +96,10 @@ webtalk_*.xml
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# waveform files    
+*.vcd
+*.fst
+*.wlf
+*.vpd
+*.fsdb

@@ -25,6 +25,8 @@ TB_DIR = testbench
 DUT = $(RTL_DIR)/basic.v
 
 # Testbench modules
+TB_BASIC1 = basic1_tb
+TB_BASIC2 = basic2_tb
 TB_CASE1A = case1a_tb
 TB_CASE1B = case1b_tb
 TB_CASE2A = case2a_tb
@@ -33,8 +35,11 @@ TB_CASE3A = case3a_tb
 TB_CASE3B = case3b_tb
 TB_CASE4A = case4a_tb
 TB_CASE4B = case4b_tb
+TB_CASE4C = case4c_tb
 
 # Snapshots
+SNAP_BASIC1 = $(TB_BASIC1)_snapshot
+SNAP_BASIC2 = $(TB_BASIC2)_snapshot
 SNAP_CASE1A = $(TB_CASE1A)_snapshot
 SNAP_CASE1B = $(TB_CASE1B)_snapshot
 SNAP_CASE2A = $(TB_CASE2A)_snapshot
@@ -43,8 +48,11 @@ SNAP_CASE3A = $(TB_CASE3A)_snapshot
 SNAP_CASE3B = $(TB_CASE3B)_snapshot
 SNAP_CASE4A = $(TB_CASE4A)_snapshot
 SNAP_CASE4B = $(TB_CASE4B)_snapshot
+SNAP_CASE4C = $(TB_CASE4C)_snapshot
 
 # WDB files
+WDB_BASIC1 = $(WDB_DIR)/$(TB_BASIC1).wdb
+WDB_BASIC2 = $(WDB_DIR)/$(TB_BASIC2).wdb
 WDB_CASE1A = $(WDB_DIR)/$(TB_CASE1A).wdb
 WDB_CASE1B = $(WDB_DIR)/$(TB_CASE1B).wdb
 WDB_CASE2A = $(WDB_DIR)/$(TB_CASE2A).wdb
@@ -53,10 +61,11 @@ WDB_CASE3A = $(WDB_DIR)/$(TB_CASE3A).wdb
 WDB_CASE3B = $(WDB_DIR)/$(TB_CASE3B).wdb
 WDB_CASE4A = $(WDB_DIR)/$(TB_CASE4A).wdb
 WDB_CASE4B = $(WDB_DIR)/$(TB_CASE4B).wdb
+WDB_CASE4C = $(WDB_DIR)/$(TB_CASE4C).wdb
 
 # Default target
 .PHONY: all
-all: case1 case2 case3 case4
+all: background case1 case2 case3 case4
 
 # Compile all sources
 .PHONY: compile
@@ -65,6 +74,8 @@ compile:
 	@echo "Compiling RTL and Testbench files..."
 	@echo "================================================================"
 	$(XVLOG) $(XVLOG_FLAGS) $(DUT)
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_BASIC1).v
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_BASIC2).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE1A).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE1B).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE2A).v
@@ -73,8 +84,35 @@ compile:
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE3B).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4A).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4B).v
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4C).v
 	@echo "Compilation successful"
 	@echo ""
+
+# Background: Understanding @(posedge clk) placement
+.PHONY: background basic1 basic2
+background: basic1 basic2
+
+basic1: compile
+	@echo "================================================================"
+	@echo "Background Example 1: @(posedge clk) BEFORE assignment"
+	@echo "================================================================"
+	@mkdir -p $(WDB_DIR)
+	$(XELAB) $(XELAB_FLAGS) -top $(TB_BASIC1) -snapshot $(SNAP_BASIC1)
+	@echo "add_wave {{/$(TB_BASIC1)/*}}" > basic1_sim.tcl
+	@echo "add_wave {{/$(TB_BASIC1)/u_dut/*}}" >> basic1_sim.tcl
+	@echo "run all" >> basic1_sim.tcl
+	$(XSIM) $(SNAP_BASIC1) -gui -wdb $(WDB_BASIC1) -tclbatch basic1_sim.tcl -log basic1_simulate.log &
+
+basic2: compile
+	@echo "================================================================"
+	@echo "Background Example 2: Assignment BEFORE @(posedge clk)"
+	@echo "================================================================"
+	@mkdir -p $(WDB_DIR)
+	$(XELAB) $(XELAB_FLAGS) -top $(TB_BASIC2) -snapshot $(SNAP_BASIC2)
+	@echo "add_wave {{/$(TB_BASIC2)/*}}" > basic2_sim.tcl
+	@echo "add_wave {{/$(TB_BASIC2)/u_dut/*}}" >> basic2_sim.tcl
+	@echo "run all" >> basic2_sim.tcl
+	$(XSIM) $(SNAP_BASIC2) -gui -wdb $(WDB_BASIC2) -tclbatch basic2_sim.tcl -log basic2_simulate.log &
 
 # Case 1: Assignment after clock edge
 .PHONY: case1 case1a case1b
@@ -128,13 +166,13 @@ case2b: compile
 	@echo "run all" >> case2b_sim.tcl
 	$(XSIM) $(SNAP_CASE2B) -gui -wdb $(WDB_CASE2B) -tclbatch case2b_sim.tcl -log case2b_simulate.log &
 
-# Case 3: Initial block
+# Case 3: Inactive Region - Time delay effect
 .PHONY: case3 case3a case3b
 case3: case3a case3b
 
 case3a: compile
 	@echo "================================================================"
-	@echo "Case 3A: Blocking assignment in initial block"
+	@echo "Case 3A: Blocking without time delay (RACE CONDITION)"
 	@echo "================================================================"
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE3A) -snapshot $(SNAP_CASE3A)
@@ -145,7 +183,7 @@ case3a: compile
 
 case3b: compile
 	@echo "================================================================"
-	@echo "Case 3B: Non-blocking assignment in initial block"
+	@echo "Case 3B: Blocking with #1 delay (RACE-FREE)"
 	@echo "================================================================"
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE3B) -snapshot $(SNAP_CASE3B)
@@ -154,13 +192,13 @@ case3b: compile
 	@echo "run all" >> case3b_sim.tcl
 	$(XSIM) $(SNAP_CASE3B) -gui -wdb $(WDB_CASE3B) -tclbatch case3b_sim.tcl -log case3b_simulate.log &
 
-# Case 4: Clocked always block
-.PHONY: case4 case4a case4b
-case4: case4a case4b
+# Case 4: Monitor Region - System task timing
+.PHONY: case4 case4a case4b case4c
+case4: case4a case4b case4c
 
 case4a: compile
 	@echo "================================================================"
-	@echo "Case 4A: Blocking in always @(posedge clk) - RACE CONDITION"
+	@echo "Case 4A: Using $display (Active Region)"
 	@echo "================================================================"
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE4A) -snapshot $(SNAP_CASE4A)
@@ -171,7 +209,7 @@ case4a: compile
 
 case4b: compile
 	@echo "================================================================"
-	@echo "Case 4B: Non-blocking in always @(posedge clk) - CORRECT"
+	@echo "Case 4B: Using $strobe (Monitor Region)"
 	@echo "================================================================"
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE4B) -snapshot $(SNAP_CASE4B)
@@ -180,8 +218,30 @@ case4b: compile
 	@echo "run all" >> case4b_sim.tcl
 	$(XSIM) $(SNAP_CASE4B) -gui -wdb $(WDB_CASE4B) -tclbatch case4b_sim.tcl -log case4b_simulate.log &
 
+case4c: compile
+	@echo "================================================================"
+	@echo "Case 4C: Using $monitor (Monitor Region, Automatic)"
+	@echo "================================================================"
+	@mkdir -p $(WDB_DIR)
+	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE4C) -snapshot $(SNAP_CASE4C)
+	@echo "add_wave {{/$(TB_CASE4C)/*}}" > case4c_sim.tcl
+	@echo "add_wave {{/$(TB_CASE4C)/u_dut/*}}" >> case4c_sim.tcl
+	@echo "run all" >> case4c_sim.tcl
+	$(XSIM) $(SNAP_CASE4C) -gui -wdb $(WDB_CASE4C) -tclbatch case4c_sim.tcl -log case4c_simulate.log &
+
 # Batch mode simulations (without GUI)
-.PHONY: batch1a batch1b batch2a batch2b batch3a batch3b batch4a batch4b
+.PHONY: batchbasic1 batchbasic2 batch1a batch1b batch2a batch2b batch3a batch3b batch4a batch4b batch4c
+
+batchbasic1: compile
+	@mkdir -p $(WDB_DIR)
+	$(XELAB) $(XELAB_FLAGS) -top $(TB_BASIC1) -snapshot $(SNAP_BASIC1)
+	$(XSIM) $(SNAP_BASIC1) -runall -log basic1_batch.log
+
+batchbasic2: compile
+	@mkdir -p $(WDB_DIR)
+	$(XELAB) $(XELAB_FLAGS) -top $(TB_BASIC2) -snapshot $(SNAP_BASIC2)
+	$(XSIM) $(SNAP_BASIC2) -runall -log basic2_batch.log
+
 batch1a: compile
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE1A) -snapshot $(SNAP_CASE1A)
@@ -222,6 +282,11 @@ batch4b: compile
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE4B) -snapshot $(SNAP_CASE4B)
 	$(XSIM) $(SNAP_CASE4B) -runall -log case4b_batch.log
 
+batch4c: compile
+	@mkdir -p $(WDB_DIR)
+	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE4C) -snapshot $(SNAP_CASE4C)
+	$(XSIM) $(SNAP_CASE4C) -runall -log case4c_batch.log
+
 # Clean
 .PHONY: clean
 clean:
@@ -237,38 +302,52 @@ clean:
 .PHONY: help
 help:
 	@echo "================================================================"
-	@echo "Lab3 RTL Simulation - Makefile Help"
+	@echo "Lab3 RTL Simulation - Delta Cycles and Assignment Types"
 	@echo "================================================================"
 	@echo "Available targets:"
 	@echo ""
-	@echo "  all          - Run all case studies (opens multiple GUIs)"
+	@echo "  all          - Run all case studies (background + case1-4)"
 	@echo ""
-	@echo "  case1        - Run Case 1A and 1B (assignment after clock edge)"
-	@echo "  case1a       - Run Case 1A (blocking) with GUI"
-	@echo "  case1b       - Run Case 1B (non-blocking) with GUI"
+	@echo "BACKGROUND: Understanding @(posedge clk) placement"
+	@echo "  background   - Run basic1 and basic2"
+	@echo "  basic1       - @(posedge clk) BEFORE assignment"
+	@echo "  basic2       - Assignment BEFORE @(posedge clk)"
 	@echo ""
-	@echo "  case2        - Run Case 2A and 2B (assignment before clock edge)"
-	@echo "  case2a       - Run Case 2A (blocking) with GUI"
-	@echo "  case2b       - Run Case 2B (non-blocking) with GUI"
+	@echo "CASE 1: Active vs NBA Region (assignment after @(posedge clk))"
+	@echo "  case1        - Run Case 1A and 1B"
+	@echo "  case1a       - Blocking (RACE CONDITION)"
+	@echo "  case1b       - Non-blocking (RACE-FREE)"
 	@echo ""
-	@echo "  case3        - Run Case 3A and 3B (initial block)"
-	@echo "  case3a       - Run Case 3A (blocking) with GUI"
-	@echo "  case3b       - Run Case 3B (non-blocking) with GUI"
+	@echo "CASE 2: Assignment Location (assignment before @(posedge clk))"
+	@echo "  case2        - Run Case 2A and 2B"
+	@echo "  case2a       - Blocking (STILL RACE!)"
+	@echo "  case2b       - Non-blocking (RACE-FREE)"
 	@echo ""
-	@echo "  case4        - Run Case 4A and 4B (clocked always block)"
-	@echo "  case4a       - Run Case 4A (blocking - RACE CONDITION) with GUI"
-	@echo "  case4b       - Run Case 4B (non-blocking - CORRECT) with GUI"
+	@echo "CASE 3: Inactive Region (time delay effect)"
+	@echo "  case3        - Run Case 3A and 3B"
+	@echo "  case3a       - Blocking without delay (RACE)"
+	@echo "  case3b       - Blocking with #1 delay (RACE-FREE)"
 	@echo ""
-	@echo "  batch[X]     - Run case X in batch mode without GUI"
-	@echo "                 (e.g., batch1a, batch1b, batch2a, etc.)"
+	@echo "CASE 4: Monitor Region (system task timing)"
+	@echo "  case4        - Run Case 4A, 4B, and 4C"
+	@echo "  case4a       - Using $display (Active Region)"
+	@echo "  case4b       - Using $strobe (Monitor Region)"
+	@echo "  case4c       - Using $monitor (Monitor Region, Auto)"
 	@echo ""
+	@echo "BATCH MODE: Run without GUI"
+	@echo "  batch[X]     - Run case X in batch mode"
+	@echo "                 (e.g., batchbasic1, batch1a, batch4c, etc.)"
+	@echo ""
+	@echo "OTHER:"
 	@echo "  compile      - Compile all RTL and testbench files"
 	@echo "  clean        - Remove generated files"
 	@echo "  help         - Show this help message"
 	@echo "================================================================"
 	@echo ""
-	@echo "Typical workflow:"
-	@echo "  1. make case1a      # Run Case 1A with waveform GUI"
-	@echo "  2. make case1b      # Compare with Case 1B"
-	@echo "  3. Analyze waveforms to observe timing differences"
+	@echo "Recommended workflow:"
+	@echo "  1. make background  # Understand for-loop patterns first"
+	@echo "  2. make case1       # See Active vs NBA region"
+	@echo "  3. make case2       # See that code order doesn't matter"
+	@echo "  4. make case3       # See time delay effect"
+	@echo "  5. make case4       # See Monitor region system tasks"
 	@echo "================================================================"

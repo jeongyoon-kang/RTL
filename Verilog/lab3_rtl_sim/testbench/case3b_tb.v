@@ -1,12 +1,17 @@
 //==============================================================================
 // File name    : case3b_tb.v
-// Description  : Case 3B - Non-blocking assignment in initial block
+// Description  : Case 3B - Blocking assignment WITH #0 delay (Inactive Region)
 //
-// Case Study: Initial Block Initialization - Non-blocking
+// Case Study: Inactive Region - Zero Delay Effect
 //
-// This testbench uses NON-BLOCKING assignments in the initial block to drive
-// input signals. This avoids race conditions by scheduling updates to the NBA
-// region, ensuring deterministic behavior with the DUT.
+// This testbench drives input signals using BLOCKING assignments WITH
+// a #0 delay after @(posedge clk). The #0 delay moves execution to the
+// INACTIVE REGION, but still at the SAME simulation time!
+//
+// IMPORTANT: #0 does NOT avoid race conditions!
+// - Execution moves to Inactive Region (same time T)
+// - DUT has already sampled inputs in Active Region
+// - Race condition STILL EXISTS because execution order is undefined
 //
 //==============================================================================
 
@@ -63,7 +68,7 @@ power #(
 );
 
 //=============================================================================
-// Test Stimulus - Case 3B: NON-BLOCKING in initial block
+// Test Stimulus - Case 3B: BLOCKING with #0 delay (STILL RACE!)
 //=============================================================================
 initial begin
     // Initialize test vectors
@@ -73,42 +78,57 @@ initial begin
     test_values[3] = 32'h00000007;
     test_values[4] = 32'h0000000A;
 
+    // Initialize signals
+    i_valid_tb = 1'b0;
+    i_data_tb = 32'h0;
+    reset_n = 1'b0;
+
+    // Wait for reset
+    repeat(2) @(posedge clk);
+    reset_n = 1'b1;
+    repeat(1) @(posedge clk);
+
     $display("================================================================");
-    $display("Case 3B: Non-blocking Assignment in Initial Block");
+    $display("Case 3B: Blocking Assignment WITH #0 Delay (Inactive Region)");
+    $display("================================================================");
+    $display("Pattern:");
+    $display("  @(posedge clk);");
+    $display("  #0;              // Zero delay - move to Inactive Region");
+    $display("  signal = value;  // Executes at SAME simulation time T!");
+    $display("");
+    $display("Result: STILL RACE - #0 does NOT avoid race condition!");
+    $display("        Inactive Region is still at the same time T");
     $display("================================================================");
     $display("Time\t\tEvent");
     $display("----------------------------------------------------------------");
 
-    // NON-BLOCKING initialization
-    i_valid_tb <= 1'b0;
-    i_data_tb <= 32'h0;
-    reset_n <= 1'b0;
-    $display("%0t ns\tScheduled initialization (NON-BLOCKING)", $time);
-
-    // Wait for reset
-    repeat(2) @(posedge clk);
-    reset_n <= 1'b1;
-    repeat(1) @(posedge clk);
-
-    // Send test data using NON-BLOCKING assignments after @(posedge clk)
+    // Send test data using BLOCKING assignments WITH #0 delay
     for (i = 0; i < 5; i = i + 1) begin
         @(posedge clk);
-        // NON-BLOCKING assignment right after clock edge
-        i_valid_tb <= 1'b1;
-        i_data_tb <= test_values[i];
-        $display("%0t ns\tScheduled i_data_tb = 0x%h (NON-BLOCKING after clock)", $time, test_values[i]);
+        #0;  // Zero delay - moves to Inactive Region (SAME time T!)
+        i_valid_tb = 1'b1;
+        i_data_tb = test_values[i];
+        $display("%0t ns\tAssigned i_data_tb = 0x%h (WITH #0 DELAY - Inactive Region)", $time, test_values[i]);
     end
 
     // Deassert valid
     @(posedge clk);
-    i_valid_tb <= 1'b0;
-    i_data_tb <= 32'h0;
+    #0;
+    i_valid_tb = 1'b0;
+    i_data_tb = 32'h0;
 
     // Wait for pipeline to flush
     repeat(5) @(posedge clk);
 
     $display("================================================================");
     $display("Simulation completed");
+    $display("================================================================");
+    $display("WARNING: #0 delay does NOT prevent race conditions!");
+    $display("  - #0 moves execution to Inactive Region");
+    $display("  - But Inactive Region is still at the SAME simulation time");
+    $display("  - DUT may have already sampled old values in Active Region");
+    $display("");
+    $display("Use non-blocking assignments (<=) or #n (n>0) instead!");
     $display("================================================================");
     $finish;
 end
@@ -132,7 +152,7 @@ end
 // Waveform Dump
 //=============================================================================
 initial begin
-    $dumpfile("case3b.vcd");
+    $dumpfile("case3b_zero_delay.vcd");
     $dumpvars(0, case3b_tb);
 end
 

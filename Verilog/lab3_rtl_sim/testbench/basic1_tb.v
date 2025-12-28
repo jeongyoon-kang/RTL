@@ -1,21 +1,22 @@
 //==============================================================================
-// File name    : case3a_tb.v
-// Description  : Case 3A - Blocking assignment without time delay
+// File name    : basic1_tb.v
+// Description  : Background Example 1 - @(posedge clk) INSIDE for-loop
 //
-// Case Study: Time Delay Effect on Race Conditions
+// This testbench demonstrates @(posedge clk) placement INSIDE the for-loop:
 //
-// This testbench drives input signals using BLOCKING assignments immediately
-// after @(posedge clk). This creates a race condition with the DUT as both
-// execute in the Active region at the same simulation time.
+//   for (i = 0; i < N; i = i + 1) begin
+//       @(posedge clk);      // Wait for clock edge INSIDE loop
+//       signal <= value;     // Non-blocking assignment
+//   end
 //
-// Compare with Case 3B which uses #1 delay to move assignment to next
-// simulation time, avoiding the race condition.
+// Result: Each value is applied on a separate clock cycle (N cycles total)
+// This is the CORRECT pattern for driving stimulus to DUT.
 //
 //==============================================================================
 
 `timescale 1ns/1ps
 
-module case3a_tb;
+module basic1_tb;
 
 //=============================================================================
 // Parameters
@@ -66,7 +67,7 @@ power #(
 );
 
 //=============================================================================
-// Test Stimulus - Case 3A: BLOCKING without delay (RACE CONDITION)
+// Test Stimulus - Background Example 1: @(posedge clk) BEFORE assignment
 //=============================================================================
 initial begin
     // Initialize test vectors
@@ -87,38 +88,36 @@ initial begin
     repeat(1) @(posedge clk);
 
     $display("================================================================");
-    $display("Case 3A: Blocking Assignment WITHOUT Time Delay");
+    $display("Background Example 1: @(posedge clk) INSIDE for-loop");
     $display("================================================================");
     $display("Pattern:");
-    $display("  @(posedge clk);");
-    $display("  signal = value;  // NO DELAY - executes in Active Region");
-    $display("");
-    $display("Result: RACE CONDITION with DUT!");
+    $display("  for (i = 0; i < 5; i = i + 1) begin");
+    $display("      @(posedge clk);     // Wait for clock edge INSIDE loop");
+    $display("      i_valid_tb <= 1;    // Non-blocking assignment");
+    $display("      i_data_tb <= value;");
+    $display("  end");
     $display("================================================================");
     $display("Time\t\tEvent");
     $display("----------------------------------------------------------------");
 
-    // Send test data using BLOCKING assignments WITHOUT delay
+    // Pattern: @(posedge clk) INSIDE for-loop with non-blocking assignment
     for (i = 0; i < 5; i = i + 1) begin
-        @(posedge clk);
-        // NO DELAY - executes in Active Region, same as DUT!
-        i_valid_tb = 1'b1;
-        i_data_tb = test_values[i];
-        $display("%0t ns\tAssigned i_data_tb = 0x%h (NO DELAY, Active Region)", $time, test_values[i]);
+        @(posedge clk);              // Wait for clock edge INSIDE loop
+        i_valid_tb <= 1'b1;          // Non-blocking assignment (scheduled to NBA region)
+        i_data_tb <= test_values[i];
+        $display("%0t ns\tAfter @(posedge clk), assigned i_data_tb = 0x%h", $time, test_values[i]);
     end
 
     // Deassert valid
     @(posedge clk);
-    i_valid_tb = 1'b0;
-    i_data_tb = 32'h0;
+    i_valid_tb <= 1'b0;
+    i_data_tb <= 32'h0;
 
     // Wait for pipeline to flush
     repeat(5) @(posedge clk);
 
     $display("================================================================");
     $display("Simulation completed");
-    $display("================================================================");
-    $display("NOTE: Race condition present - behavior is simulator-dependent!");
     $display("================================================================");
     $finish;
 end
@@ -142,8 +141,8 @@ end
 // Waveform Dump
 //=============================================================================
 initial begin
-    $dumpfile("case3a.vcd");
-    $dumpvars(0, case3a_tb);
+    $dumpfile("basic1.vcd");
+    $dumpvars(0, basic1_tb);
 end
 
 endmodule

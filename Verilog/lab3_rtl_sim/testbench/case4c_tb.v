@@ -1,21 +1,26 @@
 //==============================================================================
-// File name    : case3a_tb.v
-// Description  : Case 3A - Blocking assignment without time delay
+// File name    : case4c_tb.v
+// Description  : Case 4C - Using $monitor (Monitor Region, Automatic)
 //
-// Case Study: Time Delay Effect on Race Conditions
+// Case Study: Monitor Region - System Task Execution Timing
 //
-// This testbench drives input signals using BLOCKING assignments immediately
-// after @(posedge clk). This creates a race condition with the DUT as both
-// execute in the Active region at the same simulation time.
+// This testbench demonstrates $monitor which executes in the MONITOR REGION
+// and AUTOMATICALLY prints whenever any monitored signal changes.
 //
-// Compare with Case 3B which uses #1 delay to move assignment to next
-// simulation time, avoiding the race condition.
+// Key Differences:
+//   - $display: Active Region, manual call each time
+//   - $strobe: Monitor Region, manual call each time
+//   - $monitor: Monitor Region, AUTOMATIC on signal change
+//
+// Compare with:
+//   - Case 4A: $display (executes in Active Region, before NBA)
+//   - Case 4B: $strobe (executes in Monitor Region, manual)
 //
 //==============================================================================
 
 `timescale 1ns/1ps
 
-module case3a_tb;
+module case4c_tb;
 
 //=============================================================================
 // Parameters
@@ -66,7 +71,27 @@ power #(
 );
 
 //=============================================================================
-// Test Stimulus - Case 3A: BLOCKING without delay (RACE CONDITION)
+// Monitoring with $monitor - Monitor Region, Automatic
+//=============================================================================
+initial begin
+    $display("================================================================");
+    $display("Case 4C: Using $monitor (Monitor Region, Automatic)");
+    $display("================================================================");
+    $display("Key Points:");
+    $display("  - $monitor executes in MONITOR REGION");
+    $display("  - Prints values AFTER NBA updates");
+    $display("  - AUTOMATICALLY prints when monitored signals change");
+    $display("  - Set up ONCE, prints continuously");
+    $display("================================================================");
+    $display("");
+
+    // Set up $monitor ONCE - it will automatically print on changes
+    $monitor("[MONITOR] Time=%0t, i_valid=%b, i_data=%h, r_valid[0]=%b (Monitor Region)",
+             $time, i_valid_tb, i_data_tb, u_dut.r_valid[0]);
+end
+
+//=============================================================================
+// Test Stimulus - Using NON-BLOCKING (safe from race conditions)
 //=============================================================================
 initial begin
     // Initialize test vectors
@@ -86,64 +111,37 @@ initial begin
     reset_n = 1'b1;
     repeat(1) @(posedge clk);
 
-    $display("================================================================");
-    $display("Case 3A: Blocking Assignment WITHOUT Time Delay");
-    $display("================================================================");
-    $display("Pattern:");
-    $display("  @(posedge clk);");
-    $display("  signal = value;  // NO DELAY - executes in Active Region");
-    $display("");
-    $display("Result: RACE CONDITION with DUT!");
-    $display("================================================================");
-    $display("Time\t\tEvent");
-    $display("----------------------------------------------------------------");
-
-    // Send test data using BLOCKING assignments WITHOUT delay
+    // Send test data using NON-BLOCKING assignments (safe)
     for (i = 0; i < 5; i = i + 1) begin
         @(posedge clk);
-        // NO DELAY - executes in Active Region, same as DUT!
-        i_valid_tb = 1'b1;
-        i_data_tb = test_values[i];
-        $display("%0t ns\tAssigned i_data_tb = 0x%h (NO DELAY, Active Region)", $time, test_values[i]);
+        i_valid_tb <= 1'b1;
+        i_data_tb <= test_values[i];
+        // NO explicit print needed - $monitor automatically prints!
     end
 
     // Deassert valid
     @(posedge clk);
-    i_valid_tb = 1'b0;
-    i_data_tb = 32'h0;
+    i_valid_tb <= 1'b0;
+    i_data_tb <= 32'h0;
 
     // Wait for pipeline to flush
     repeat(5) @(posedge clk);
 
+    $display("");
     $display("================================================================");
     $display("Simulation completed");
     $display("================================================================");
-    $display("NOTE: Race condition present - behavior is simulator-dependent!");
+    $display("Notice: $monitor printed automatically on every signal change!");
     $display("================================================================");
     $finish;
-end
-
-//=============================================================================
-// Monitor outputs
-//=============================================================================
-initial begin
-    $display("\nOutput Monitor:");
-    $display("Time\t\to_valid\to_data");
-    $display("----------------------------------------------------------------");
-end
-
-always @(posedge clk) begin
-    if (o_valid_tb) begin
-        $display("%0t ns\t%b\t0x%h", $time, o_valid_tb, o_data_tb);
-    end
 end
 
 //=============================================================================
 // Waveform Dump
 //=============================================================================
 initial begin
-    $dumpfile("case3a.vcd");
-    $dumpvars(0, case3a_tb);
+    $dumpfile("case4c.vcd");
+    $dumpvars(0, case4c_tb);
 end
 
 endmodule

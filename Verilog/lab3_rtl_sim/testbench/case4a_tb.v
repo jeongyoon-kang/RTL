@@ -1,13 +1,16 @@
 //==============================================================================
 // File name    : case4a_tb.v
-// Description  : Case 4A - Blocking in always @(posedge clk) - Race Condition
+// Description  : Case 4A - Using $display (Active Region)
 //
-// Case Study: Clocked Always Block - Blocking (DANGEROUS!)
+// Case Study: Monitor Region - System Task Execution Timing
 //
-// This testbench uses a clocked always block with BLOCKING assignments to
-// drive input signals. This creates a RACE CONDITION because both the TB
-// and DUT trigger on the same clock edge, and the order of execution in
-// the Active region is undefined.
+// This testbench demonstrates $display which executes in the ACTIVE REGION.
+// When called at the same time as non-blocking assignments, $display may
+// print values BEFORE the NBA region updates occur.
+//
+// Compare with:
+//   - Case 4B: $strobe (executes in Monitor Region, after NBA)
+//   - Case 4C: $monitor (executes in Monitor Region, automatic)
 //
 //==============================================================================
 
@@ -36,9 +39,10 @@ wire                    o_valid_tb;
 wire [63:0]             o_data_tb;
 
 //=============================================================================
-// Test Control
+// Test Vectors
 //=============================================================================
-reg [3:0] test_count;
+reg [DATA_WIDTH-1:0] test_values [0:4];
+integer i;
 
 //=============================================================================
 // Clock Generation
@@ -63,55 +67,48 @@ power #(
 );
 
 //=============================================================================
-// Test Stimulus - Case 4A: BLOCKING in clocked always block (RACE!)
-//=============================================================================
-
-// DANGEROUS: Clocked always block with BLOCKING assignment
-// This creates a race condition with the DUT!
-always @(posedge clk) begin
-    if (!reset_n) begin
-        i_valid_tb = 1'b0;
-        i_data_tb = 32'h0;
-        test_count = 4'h0;
-    end
-    else begin
-        if (test_count < 5) begin
-            // BLOCKING assignment in Active region
-            // DUT also reads i_valid in Active region
-            // ORDER IS UNDEFINED!
-            i_valid_tb = 1'b1;
-            i_data_tb = test_count + 2;  // 2, 3, 4, 5, 6
-            test_count = test_count + 1;
-        end
-        else begin
-            i_valid_tb = 1'b0;
-            i_data_tb = 32'h0;
-        end
-    end
-end
-
-//=============================================================================
-// Test Control
+// Test Stimulus - Using NON-BLOCKING (safe from race conditions)
 //=============================================================================
 initial begin
-    $display("================================================================");
-    $display("Case 4A: Blocking in Clocked Always Block (RACE CONDITION)");
-    $display("================================================================");
-    $display("WARNING: This testbench has a race condition!");
-    $display("The TB and DUT both use @(posedge clk) triggers.");
-    $display("TB uses blocking (=) which executes in Active region.");
-    $display("DUT reads inputs in Active region.");
-    $display("The order is UNDEFINED by Verilog standard!");
-    $display("================================================================");
-    $display("Time\t\tEvent");
-    $display("----------------------------------------------------------------");
+    // Initialize test vectors
+    test_values[0] = 32'h00000002;
+    test_values[1] = 32'h00000003;
+    test_values[2] = 32'h00000005;
+    test_values[3] = 32'h00000007;
+    test_values[4] = 32'h0000000A;
 
+    // Initialize signals
+    i_valid_tb = 1'b0;
+    i_data_tb = 32'h0;
     reset_n = 1'b0;
+
+    // Wait for reset
     repeat(2) @(posedge clk);
     reset_n = 1'b1;
+    repeat(1) @(posedge clk);
 
-    // Wait for test to complete
-    wait(test_count >= 5);
+    $display("================================================================");
+    $display("Case 4A: Using $display (Active Region)");
+    $display("================================================================");
+    $display("Key Point:");
+    $display("  - $display executes in ACTIVE REGION");
+    $display("  - Prints values BEFORE NBA updates");
+    $display("  - May show 'old' values for non-blocking assignments");
+    $display("================================================================");
+
+    // Send test data using NON-BLOCKING assignments (safe)
+    for (i = 0; i < 5; i = i + 1) begin
+        @(posedge clk);
+        i_valid_tb <= 1'b1;
+        i_data_tb <= test_values[i];
+    end
+
+    // Deassert valid
+    @(posedge clk);
+    i_valid_tb <= 1'b0;
+    i_data_tb <= 32'h0;
+
+    // Wait for pipeline to flush
     repeat(5) @(posedge clk);
 
     $display("================================================================");
@@ -121,28 +118,13 @@ initial begin
 end
 
 //=============================================================================
-// Monitor outputs
-//=============================================================================
-initial begin
-    $display("\nOutput Monitor:");
-    $display("Time\t\to_valid\to_data");
-    $display("----------------------------------------------------------------");
-end
-
-always @(posedge clk) begin
-    if (o_valid_tb) begin
-        $display("%0t ns\t%b\t0x%h", $time, o_valid_tb, o_data_tb);
-    end
-end
-
-//=============================================================================
-// Monitor inputs to see race condition effects
+// Monitoring with $display - Active Region
 //=============================================================================
 always @(posedge clk) begin
-    #1;  // Small delay to observe the settled values
-    if (i_valid_tb) begin
-        $display("%0t ns\tInput: i_valid_tb=%b, i_data_tb=0x%h", $time-1, i_valid_tb, i_data_tb);
-    end
+    // $display executes in ACTIVE region
+    // It may print BEFORE non-blocking assignments update in NBA region
+    $display("[DISPLAY] Time=%0t, i_valid=%b, r_valid[0]=%b (Active Region)",
+             $time, i_valid_tb, u_dut.r_valid[0]);
 end
 
 //=============================================================================

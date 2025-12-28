@@ -1,13 +1,16 @@
 //==============================================================================
 // File name    : case4b_tb.v
-// Description  : Case 4B - Non-blocking in always @(posedge clk) - Correct
+// Description  : Case 4B - Using $strobe (Monitor Region)
 //
-// Case Study: Clocked Always Block - Non-blocking (CORRECT)
+// Case Study: Monitor Region - System Task Execution Timing
 //
-// This testbench uses a clocked always block with NON-BLOCKING assignments to
-// drive input signals. This avoids race conditions because updates are
-// scheduled to the NBA region, which occurs after the DUT reads inputs in
-// the Active region.
+// This testbench demonstrates $strobe which executes in the MONITOR REGION.
+// When called at the same time as non-blocking assignments, $strobe waits
+// until AFTER the NBA region updates before printing values.
+//
+// Compare with:
+//   - Case 4A: $display (executes in Active Region, before NBA)
+//   - Case 4C: $monitor (executes in Monitor Region, automatic)
 //
 //==============================================================================
 
@@ -36,9 +39,10 @@ wire                    o_valid_tb;
 wire [63:0]             o_data_tb;
 
 //=============================================================================
-// Test Control
+// Test Vectors
 //=============================================================================
-reg [3:0] test_count;
+reg [DATA_WIDTH-1:0] test_values [0:4];
+integer i;
 
 //=============================================================================
 // Clock Generation
@@ -63,57 +67,48 @@ power #(
 );
 
 //=============================================================================
-// Test Stimulus - Case 4B: NON-BLOCKING in clocked always block (CORRECT)
-//=============================================================================
-
-// CORRECT: Clocked always block with NON-BLOCKING assignment
-// This avoids race conditions with the DUT
-always @(posedge clk) begin
-    if (!reset_n) begin
-        i_valid_tb <= 1'b0;
-        i_data_tb <= 32'h0;
-        test_count <= 4'h0;
-    end
-    else begin
-        if (test_count < 5) begin
-            // NON-BLOCKING assignment scheduled to NBA region
-            // DUT reads i_valid in Active region (sees old value)
-            // Input updates in NBA region (after DUT read)
-            // ORDER IS WELL-DEFINED!
-            i_valid_tb <= 1'b1;
-            i_data_tb <= test_count + 2;  // 2, 3, 4, 5, 6
-            test_count <= test_count + 1;
-        end
-        else begin
-            i_valid_tb <= 1'b0;
-            i_data_tb <= 32'h0;
-        end
-    end
-end
-
-//=============================================================================
-// Test Control
+// Test Stimulus - Using NON-BLOCKING (safe from race conditions)
 //=============================================================================
 initial begin
-    $display("================================================================");
-    $display("Case 4B: Non-blocking in Clocked Always Block (CORRECT)");
-    $display("================================================================");
-    $display("This testbench avoids race conditions!");
-    $display("The TB and DUT both use @(posedge clk) triggers.");
-    $display("TB uses non-blocking (<=) which schedules to NBA region.");
-    $display("DUT reads inputs in Active region (sees old values).");
-    $display("TB updates occur in NBA region (after DUT read).");
-    $display("The order is WELL-DEFINED by Verilog standard!");
-    $display("================================================================");
-    $display("Time\t\tEvent");
-    $display("----------------------------------------------------------------");
+    // Initialize test vectors
+    test_values[0] = 32'h00000002;
+    test_values[1] = 32'h00000003;
+    test_values[2] = 32'h00000005;
+    test_values[3] = 32'h00000007;
+    test_values[4] = 32'h0000000A;
 
+    // Initialize signals
+    i_valid_tb = 1'b0;
+    i_data_tb = 32'h0;
     reset_n = 1'b0;
+
+    // Wait for reset
     repeat(2) @(posedge clk);
     reset_n = 1'b1;
+    repeat(1) @(posedge clk);
 
-    // Wait for test to complete
-    wait(test_count >= 5);
+    $display("================================================================");
+    $display("Case 4B: Using $strobe (Monitor Region)");
+    $display("================================================================");
+    $display("Key Point:");
+    $display("  - $strobe executes in MONITOR REGION");
+    $display("  - Prints values AFTER NBA updates");
+    $display("  - Always shows 'final' values for that time step");
+    $display("================================================================");
+
+    // Send test data using NON-BLOCKING assignments (safe)
+    for (i = 0; i < 5; i = i + 1) begin
+        @(posedge clk);
+        i_valid_tb <= 1'b1;
+        i_data_tb <= test_values[i];
+    end
+
+    // Deassert valid
+    @(posedge clk);
+    i_valid_tb <= 1'b0;
+    i_data_tb <= 32'h0;
+
+    // Wait for pipeline to flush
     repeat(5) @(posedge clk);
 
     $display("================================================================");
@@ -123,28 +118,13 @@ initial begin
 end
 
 //=============================================================================
-// Monitor outputs
-//=============================================================================
-initial begin
-    $display("\nOutput Monitor:");
-    $display("Time\t\to_valid\to_data");
-    $display("----------------------------------------------------------------");
-end
-
-always @(posedge clk) begin
-    if (o_valid_tb) begin
-        $display("%0t ns\t%b\t0x%h", $time, o_valid_tb, o_data_tb);
-    end
-end
-
-//=============================================================================
-// Monitor inputs
+// Monitoring with $strobe - Monitor Region
 //=============================================================================
 always @(posedge clk) begin
-    #1;  // Small delay to observe the settled values
-    if (i_valid_tb) begin
-        $display("%0t ns\tInput: i_valid_tb=%b, i_data_tb=0x%h", $time-1, i_valid_tb, i_data_tb);
-    end
+    // $strobe executes in MONITOR region (after NBA)
+    // It prints AFTER non-blocking assignments update
+    $strobe("[STROBE] Time=%0t, i_valid=%b, r_valid[0]=%b (Monitor Region)",
+            $time, i_valid_tb, u_dut.r_valid[0]);
 end
 
 //=============================================================================
