@@ -33,6 +33,7 @@ TB_CASE2A = case2a_tb
 TB_CASE2B = case2b_tb
 TB_CASE3A = case3a_tb
 TB_CASE3B = case3b_tb
+TB_CASE3C = case3c_tb
 TB_CASE4A = case4a_tb
 TB_CASE4B = case4b_tb
 TB_CASE4C = case4c_tb
@@ -46,6 +47,7 @@ SNAP_CASE2A = $(TB_CASE2A)_snapshot
 SNAP_CASE2B = $(TB_CASE2B)_snapshot
 SNAP_CASE3A = $(TB_CASE3A)_snapshot
 SNAP_CASE3B = $(TB_CASE3B)_snapshot
+SNAP_CASE3C = $(TB_CASE3C)_snapshot
 SNAP_CASE4A = $(TB_CASE4A)_snapshot
 SNAP_CASE4B = $(TB_CASE4B)_snapshot
 SNAP_CASE4C = $(TB_CASE4C)_snapshot
@@ -59,6 +61,7 @@ WDB_CASE2A = $(WDB_DIR)/$(TB_CASE2A).wdb
 WDB_CASE2B = $(WDB_DIR)/$(TB_CASE2B).wdb
 WDB_CASE3A = $(WDB_DIR)/$(TB_CASE3A).wdb
 WDB_CASE3B = $(WDB_DIR)/$(TB_CASE3B).wdb
+WDB_CASE3C = $(WDB_DIR)/$(TB_CASE3C).wdb
 WDB_CASE4A = $(WDB_DIR)/$(TB_CASE4A).wdb
 WDB_CASE4B = $(WDB_DIR)/$(TB_CASE4B).wdb
 WDB_CASE4C = $(WDB_DIR)/$(TB_CASE4C).wdb
@@ -67,13 +70,18 @@ WDB_CASE4C = $(WDB_DIR)/$(TB_CASE4C).wdb
 .PHONY: all
 all: background case1 case2 case3 case4
 
-# Compile all sources
-.PHONY: compile
-compile:
-	@echo "================================================================"
-	@echo "Compiling RTL and Testbench files..."
-	@echo "================================================================"
+# Compile DUT (common for all testbenches)
+.PHONY: compile_dut
+compile_dut:
+	@echo "Compiling DUT..."
 	$(XVLOG) $(XVLOG_FLAGS) $(DUT)
+
+# Compile all sources (for convenience)
+.PHONY: compile
+compile: compile_dut
+	@echo "================================================================"
+	@echo "Compiling all Testbench files..."
+	@echo "================================================================"
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_BASIC1).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_BASIC2).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE1A).v
@@ -82,17 +90,60 @@ compile:
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE2B).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE3A).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE3B).v
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE3C).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4A).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4B).v
 	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4C).v
 	@echo "Compilation successful"
 	@echo ""
 
+# Individual testbench compile targets
+.PHONY: compile_basic1 compile_basic2
+compile_basic1: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_BASIC1).v
+
+compile_basic2: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_BASIC2).v
+
+.PHONY: compile_case1a compile_case1b
+compile_case1a: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE1A).v
+
+compile_case1b: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE1B).v
+
+.PHONY: compile_case2a compile_case2b
+compile_case2a: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE2A).v
+
+compile_case2b: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE2B).v
+
+.PHONY: compile_case3a compile_case3b compile_case3c
+compile_case3a: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE3A).v
+
+compile_case3b: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE3B).v
+
+compile_case3c: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE3C).v
+
+.PHONY: compile_case4a compile_case4b compile_case4c
+compile_case4a: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4A).v
+
+compile_case4b: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4B).v
+
+compile_case4c: compile_dut
+	$(XVLOG) $(XVLOG_FLAGS) $(TB_DIR)/$(TB_CASE4C).v
+
 # Background: Understanding @(posedge clk) placement
 .PHONY: background basic1 basic2
 background: basic1 basic2
 
-basic1: compile
+basic1: compile_basic1
 	@echo "================================================================"
 	@echo "Background Example 1: @(posedge clk) BEFORE assignment"
 	@echo "================================================================"
@@ -103,7 +154,7 @@ basic1: compile
 	@echo "run all" >> basic1_sim.tcl
 	$(XSIM) $(SNAP_BASIC1) -gui -wdb $(WDB_BASIC1) -tclbatch basic1_sim.tcl -log basic1_simulate.log &
 
-basic2: compile
+basic2: compile_basic2
 	@echo "================================================================"
 	@echo "Background Example 2: Assignment BEFORE @(posedge clk)"
 	@echo "================================================================"
@@ -118,7 +169,7 @@ basic2: compile
 .PHONY: case1 case1a case1b
 case1: case1a case1b
 
-case1a: compile
+case1a: compile_case1a
 	@echo "================================================================"
 	@echo "Case 1A: Blocking assignment after @(posedge clk)"
 	@echo "================================================================"
@@ -129,7 +180,7 @@ case1a: compile
 	@echo "run all" >> case1a_sim.tcl
 	$(XSIM) $(SNAP_CASE1A) -gui -wdb $(WDB_CASE1A) -tclbatch case1a_sim.tcl -log case1a_simulate.log &
 
-case1b: compile
+case1b: compile_case1b
 	@echo "================================================================"
 	@echo "Case 1B: Non-blocking assignment after @(posedge clk)"
 	@echo "================================================================"
@@ -144,7 +195,7 @@ case1b: compile
 .PHONY: case2 case2a case2b
 case2: case2a case2b
 
-case2a: compile
+case2a: compile_case2a
 	@echo "================================================================"
 	@echo "Case 2A: Blocking assignment before @(posedge clk)"
 	@echo "================================================================"
@@ -155,7 +206,7 @@ case2a: compile
 	@echo "run all" >> case2a_sim.tcl
 	$(XSIM) $(SNAP_CASE2A) -gui -wdb $(WDB_CASE2A) -tclbatch case2a_sim.tcl -log case2a_simulate.log &
 
-case2b: compile
+case2b: compile_case2b
 	@echo "================================================================"
 	@echo "Case 2B: Non-blocking assignment before @(posedge clk)"
 	@echo "================================================================"
@@ -167,12 +218,12 @@ case2b: compile
 	$(XSIM) $(SNAP_CASE2B) -gui -wdb $(WDB_CASE2B) -tclbatch case2b_sim.tcl -log case2b_simulate.log &
 
 # Case 3: Inactive Region - Time delay effect
-.PHONY: case3 case3a case3b
-case3: case3a case3b
+.PHONY: case3 case3a case3b case3c
+case3: case3a case3b case3c
 
-case3a: compile
+case3a: compile_case3a
 	@echo "================================================================"
-	@echo "Case 3A: Blocking without time delay (RACE CONDITION)"
+	@echo "Case 3A: Blocking without delay (RACE CONDITION)"
 	@echo "================================================================"
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE3A) -snapshot $(SNAP_CASE3A)
@@ -181,9 +232,9 @@ case3a: compile
 	@echo "run all" >> case3a_sim.tcl
 	$(XSIM) $(SNAP_CASE3A) -gui -wdb $(WDB_CASE3A) -tclbatch case3a_sim.tcl -log case3a_simulate.log &
 
-case3b: compile
+case3b: compile_case3b
 	@echo "================================================================"
-	@echo "Case 3B: Blocking with #1 delay (RACE-FREE)"
+	@echo "Case 3B: Blocking with #0 delay (STILL RACE!)"
 	@echo "================================================================"
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE3B) -snapshot $(SNAP_CASE3B)
@@ -192,11 +243,22 @@ case3b: compile
 	@echo "run all" >> case3b_sim.tcl
 	$(XSIM) $(SNAP_CASE3B) -gui -wdb $(WDB_CASE3B) -tclbatch case3b_sim.tcl -log case3b_simulate.log &
 
+case3c: compile_case3c
+	@echo "================================================================"
+	@echo "Case 3C: Blocking with #1 delay (RACE-FREE)"
+	@echo "================================================================"
+	@mkdir -p $(WDB_DIR)
+	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE3C) -snapshot $(SNAP_CASE3C)
+	@echo "add_wave {{/$(TB_CASE3C)/*}}" > case3c_sim.tcl
+	@echo "add_wave {{/$(TB_CASE3C)/u_dut/*}}" >> case3c_sim.tcl
+	@echo "run all" >> case3c_sim.tcl
+	$(XSIM) $(SNAP_CASE3C) -gui -wdb $(WDB_CASE3C) -tclbatch case3c_sim.tcl -log case3c_simulate.log &
+
 # Case 4: Monitor Region - System task timing
 .PHONY: case4 case4a case4b case4c
 case4: case4a case4b case4c
 
-case4a: compile
+case4a: compile_case4a
 	@echo "================================================================"
 	@echo "Case 4A: Using $display (Active Region)"
 	@echo "================================================================"
@@ -207,7 +269,7 @@ case4a: compile
 	@echo "run all" >> case4a_sim.tcl
 	$(XSIM) $(SNAP_CASE4A) -gui -wdb $(WDB_CASE4A) -tclbatch case4a_sim.tcl -log case4a_simulate.log &
 
-case4b: compile
+case4b: compile_case4b
 	@echo "================================================================"
 	@echo "Case 4B: Using $strobe (Monitor Region)"
 	@echo "================================================================"
@@ -218,7 +280,7 @@ case4b: compile
 	@echo "run all" >> case4b_sim.tcl
 	$(XSIM) $(SNAP_CASE4B) -gui -wdb $(WDB_CASE4B) -tclbatch case4b_sim.tcl -log case4b_simulate.log &
 
-case4c: compile
+case4c: compile_case4c
 	@echo "================================================================"
 	@echo "Case 4C: Using $monitor (Monitor Region, Automatic)"
 	@echo "================================================================"
@@ -230,59 +292,64 @@ case4c: compile
 	$(XSIM) $(SNAP_CASE4C) -gui -wdb $(WDB_CASE4C) -tclbatch case4c_sim.tcl -log case4c_simulate.log &
 
 # Batch mode simulations (without GUI)
-.PHONY: batchbasic1 batchbasic2 batch1a batch1b batch2a batch2b batch3a batch3b batch4a batch4b batch4c
+.PHONY: batchbasic1 batchbasic2 batch1a batch1b batch2a batch2b batch3a batch3b batch3c batch4a batch4b batch4c
 
-batchbasic1: compile
+batchbasic1: compile_basic1
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_BASIC1) -snapshot $(SNAP_BASIC1)
 	$(XSIM) $(SNAP_BASIC1) -runall -log basic1_batch.log
 
-batchbasic2: compile
+batchbasic2: compile_basic2
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_BASIC2) -snapshot $(SNAP_BASIC2)
 	$(XSIM) $(SNAP_BASIC2) -runall -log basic2_batch.log
 
-batch1a: compile
+batch1a: compile_case1a
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE1A) -snapshot $(SNAP_CASE1A)
 	$(XSIM) $(SNAP_CASE1A) -runall -log case1a_batch.log
 
-batch1b: compile
+batch1b: compile_case1b
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE1B) -snapshot $(SNAP_CASE1B)
 	$(XSIM) $(SNAP_CASE1B) -runall -log case1b_batch.log
 
-batch2a: compile
+batch2a: compile_case2a
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE2A) -snapshot $(SNAP_CASE2A)
 	$(XSIM) $(SNAP_CASE2A) -runall -log case2a_batch.log
 
-batch2b: compile
+batch2b: compile_case2b
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE2B) -snapshot $(SNAP_CASE2B)
 	$(XSIM) $(SNAP_CASE2B) -runall -log case2b_batch.log
 
-batch3a: compile
+batch3a: compile_case3a
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE3A) -snapshot $(SNAP_CASE3A)
 	$(XSIM) $(SNAP_CASE3A) -runall -log case3a_batch.log
 
-batch3b: compile
+batch3b: compile_case3b
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE3B) -snapshot $(SNAP_CASE3B)
 	$(XSIM) $(SNAP_CASE3B) -runall -log case3b_batch.log
 
-batch4a: compile
+batch3c: compile_case3c
+	@mkdir -p $(WDB_DIR)
+	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE3C) -snapshot $(SNAP_CASE3C)
+	$(XSIM) $(SNAP_CASE3C) -runall -log case3c_batch.log
+
+batch4a: compile_case4a
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE4A) -snapshot $(SNAP_CASE4A)
 	$(XSIM) $(SNAP_CASE4A) -runall -log case4a_batch.log
 
-batch4b: compile
+batch4b: compile_case4b
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE4B) -snapshot $(SNAP_CASE4B)
 	$(XSIM) $(SNAP_CASE4B) -runall -log case4b_batch.log
 
-batch4c: compile
+batch4c: compile_case4c
 	@mkdir -p $(WDB_DIR)
 	$(XELAB) $(XELAB_FLAGS) -top $(TB_CASE4C) -snapshot $(SNAP_CASE4C)
 	$(XSIM) $(SNAP_CASE4C) -runall -log case4c_batch.log
@@ -324,9 +391,10 @@ help:
 	@echo "  case2b       - Non-blocking (RACE-FREE)"
 	@echo ""
 	@echo "CASE 3: Inactive Region (time delay effect)"
-	@echo "  case3        - Run Case 3A and 3B"
+	@echo "  case3        - Run Case 3A, 3B, and 3C"
 	@echo "  case3a       - Blocking without delay (RACE)"
-	@echo "  case3b       - Blocking with #1 delay (RACE-FREE)"
+	@echo "  case3b       - Blocking with #0 delay (STILL RACE!)"
+	@echo "  case3c       - Blocking with #1 delay (RACE-FREE)"
 	@echo ""
 	@echo "CASE 4: Monitor Region (system task timing)"
 	@echo "  case4        - Run Case 4A, 4B, and 4C"

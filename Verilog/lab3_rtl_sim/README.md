@@ -306,27 +306,49 @@ Time T+1 (next posedge clk):
 
 ---
 
-### Case 2: Assignment Before Clock Edge
+### Case 2: Assignment Between Clock Edges
 
-**Scenario**: Drive input signals before waiting for a clock edge.
+**Scenario**: Drive input signals at a time that is NOT on a clock edge, then wait for the next posedge.
+
+**Why this matters**: If assignments happen exactly at posedge clk, the behavior is the same as Case 1. Case 2 explores what happens when we assign **between** clock edges (e.g., after negedge clk) and then wait for posedge clk.
 
 ```verilog
-// Case 2A: Blocking
-i_valid = 1'b1;
+// Case 2A: Blocking - assign between edges
+@(negedge clk);      // Wait for falling edge (middle of clock period)
+i_valid = 1'b1;      // Assign immediately at negedge time
 i_data = 8'h05;
-@(posedge clk);      // Wait for clock edge
+@(posedge clk);      // Wait for next rising edge
 
-// Case 2B: Non-blocking
-i_valid <= 1'b1;
+// Case 2B: Non-blocking - assign between edges
+@(negedge clk);      // Wait for falling edge
+i_valid <= 1'b1;     // Schedule for NBA region at negedge time
 i_data <= 8'h05;
-@(posedge clk);      // Wait for clock edge
+@(posedge clk);      // Wait for next rising edge
 ```
 
 **Expected Behavior:**
-- **Case 2A (Blocking)**: Inputs change immediately, then wait for clock. Inputs are stable before clock edge (good setup time).
-- **Case 2B (Non-blocking)**: Inputs are scheduled for NBA region. When do they update relative to the `@(posedge clk)` wait?
+- **Case 2A (Blocking)**: At negedge time, inputs change immediately in Active region. By the time posedge arrives, inputs are already stable (good setup time). DUT sees new values.
+- **Case 2B (Non-blocking)**: At negedge time, updates are scheduled for NBA region. NBA executes before simulation time advances, so by posedge, inputs are already updated. **Same result as 2A in this case!**
 
-**Key Question**: When does the NBA update occur if there's a `@(posedge clk)` on the next line?
+**Delta Cycle Analysis:**
+```
+Time T (negedge clk):
+Case 2A:
+  Active: i_valid = 1, i_data = 5 → immediate change
+  (No DUT activity - DUT only triggers on posedge)
+
+Case 2B:
+  Active: (nothing from TB blocking assignments)
+  NBA:    i_valid updates to 1, i_data updates to 5
+  (No DUT activity - DUT only triggers on posedge)
+
+Time T+half_period (posedge clk):
+Both Cases:
+  Active: DUT reads i_valid (sees 1), schedules r_valid[0] <= 1
+  NBA:    r_valid[0] updates to 1
+```
+
+**Key Insight**: When assignments occur **between** clock edges (not at posedge), both blocking and non-blocking produce the same functional result. The NBA updates complete before simulation time advances to the next event. This is different from Case 1, where the timing relative to DUT's always block matters!
 
 ---
 
@@ -347,6 +369,7 @@ signal = value;      // Executes in Active region - RACE!
 @(posedge clk);
 #0;                  // Move to Inactive region (same simulation time)
 signal = value;      // Executes after Active region, before NBA - STILL RACE!
+                     // (See detailed explanation below)
 
 // Case 3C: Blocking with #1 delay (Different Simulation Time)
 @(posedge clk);
@@ -355,8 +378,10 @@ signal = value;      // Executes at T+1ns, completely separate from DUT's T+0ns 
 ```
 
 **Expected Behavior:**
-- **Case 3A (Without delay)**: Race condition - blocking assignment in Active region, same delta cycle as DUT
-- **Case 3B (With #0 delay)**: Still potential race - executes in Inactive region but still same simulation time, before NBA updates
+- **Case 3A (Without delay)**: Race condition - blocking assignment in Active region, same delta cycle as DUT. Execution order between TB and DUT is undefined.
+- **Case 3B (With #0 delay)**: The `#0` defers the blocking assignment to Inactive region, which executes **after** Active region. Since DUT's `always_ff` samples inputs in Active region, it will consistently see the OLD value. This resolves the "TB vs DUT" race for this specific case. **However**, this is still labeled "STILL RACE" because:
+  1. Execution order among multiple `#0` processes in Inactive region remains undefined
+  2. The pattern is fragile and considered a workaround, not a robust solution
 - **Case 3C (With #1 delay)**: No race - assignment happens at completely different simulation time (T+1ns)
 
 **Delta Cycle Analysis:**
@@ -367,10 +392,14 @@ Case 3A (T=10ns, posedge clk):
   NBA:    DUT registers update
 
 Case 3B (T=10ns, posedge clk):
-  Active:   DUT reads signal (order with TB undefined)
-  Inactive: signal = value (#0 delay executes here)
-  NBA:      DUT registers update
-  Note: DUT already read signal in Active region, so #0 doesn't help much!
+  Active:   DUT always_ff reads signal (sees OLD value - TB hasn't assigned yet)
+            TB encounters #0, schedules "signal = value" to Inactive region
+  Inactive: signal = value executes here (signal NOW changes to new value)
+  NBA:      DUT registers update (using the OLD value that was read in Active)
+
+  Note: From DUT's perspective, the race with TB's blocking assignment IS resolved!
+        DUT always samples the OLD value because TB's drive is deferred to Inactive.
+        However, this is STILL considered a race-prone pattern (see below).
 
 Case 3C (T=10ns, posedge clk):
   Active: DUT reads signal (old value - TB hasn't assigned yet)
@@ -381,9 +410,14 @@ Case 3C (T=10ns, posedge clk):
 
 **Key Learnings:**
 1. **`#0` is NOT the same as `#1`**: `#0` stays in the same simulation time (Inactive region), while `#1` moves to a different time
-2. **`#0` doesn't fully solve race conditions**: The DUT reads inputs in Active region, which happens before Inactive region
-3. **`#n` (n > 0) avoids races by time separation**: The assignment happens at a completely different simulation time
-4. **Non-blocking assignments are still preferred**: They don't require arbitrary delay values and represent the industry-standard practice for synchronous testbenches
+2. **`#0` provides partial race avoidance**: By deferring the TB's blocking assignment to Inactive region, the DUT's `always_ff` block (which executes in Active region) will consistently sample the OLD value. This eliminates the "TB vs DUT" race for flip-flop sampling.
+3. **However, `#0` is still considered a race-prone workaround**:
+   - **Undefined ordering within Inactive region**: If multiple processes use `#0`, their execution order within the Inactive region is **still undefined** by IEEE standard. This can create new races between TB drivers, monitors, or other procedural blocks that also use `#0`.
+   - **Combinational logic side effects**: When signal changes in Inactive region, any `always @(*)` combinational blocks sensitive to that signal may re-evaluate within the same time step (delta iteration), potentially causing unexpected behavior in monitors or checkers.
+   - **Poor maintainability**: `#0` does not clearly express the intent of "avoiding race conditions." Future modifications to the testbench may inadvertently introduce new race conditions.
+   - **Industry consensus**: `#0` is widely regarded as a "hack" or temporary workaround, not a robust solution.
+4. **`#n` (n > 0) avoids races by time separation**: The assignment happens at a completely different simulation time
+5. **Non-blocking assignments are still preferred**: They don't require arbitrary delay values and represent the industry-standard practice for synchronous testbenches
 
 ---
 
@@ -561,7 +595,9 @@ gtkwave dump.vcd
 **Observations:**
 - [ ] Waveform screenshot: `results/case3b.png`
 - [ ] Timing analysis:
-- [ ] Does #0 avoid the race condition?
+- [ ] Does DUT consistently sample the OLD value? (Expected: Yes)
+- [ ] Does #0 resolve the "TB vs DUT" race for FF sampling?
+- [ ] Why is #0 still considered a workaround rather than a robust solution?
 - [ ] Key findings:
 
 #### Case 3C - Blocking With #1 Delay (Different Simulation Time)
@@ -572,8 +608,9 @@ gtkwave dump.vcd
 
 #### Comparison and Conclusion:
 - [ ] Difference between #0 and #1:
-- [ ] Why doesn't #0 fully solve the race condition?
-- [ ] Why does #1 delay avoid race condition?
+- [ ] How does #0 help with "TB vs DUT" FF sampling race?
+- [ ] Why is #0 still considered a race-prone workaround? (Hint: Inactive region ordering, multiple #0 processes)
+- [ ] Why does #1 delay completely avoid race conditions?
 - [ ] Which region does #0 execute in? Which "region" does #1 execute in?
 
 ---

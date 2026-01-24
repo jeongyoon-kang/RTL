@@ -92,6 +92,7 @@ initial begin
     // Send test data using BLOCKING assignments BEFORE @(posedge clk)
     for (i = 0; i < 5; i = i + 1) begin
         // BLOCKING assignments - occur immediately, BEFORE waiting for clock
+        @(negedge clk);
         i_valid_tb = 1'b1;
         i_data_tb = test_values[i];
         $display("%0t ns\tAssigned i_data_tb = 0x%h (BLOCKING, before clock)", $time, test_values[i]);
